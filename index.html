@@ -1273,7 +1273,24 @@ function localDateStr(d) {
   return `${y}-${m}-${dd}`;
 }
 const today  = () => localDateStr(new Date());
-const fmt    = n => (S.settings?.currency||'Rp') + ' ' + Math.abs(n||0).toLocaleString('id-ID');
+// FIX: formatting was hardcoded to the Indonesian locale ('id-ID', dot as
+// thousands separator) no matter which currency the user picked in
+// Settings. Selecting "$ Dollar" or "€ Euro" still showed Indonesia-style
+// grouping, which is inconsistent/incorrect for those currencies. Each
+// currency now maps to its natural locale + decimal convention.
+const CUR_LOCALE = {
+  'Rp': { locale:'id-ID', decimals:0 },
+  '$':  { locale:'en-US', decimals:2 },
+  '€':  { locale:'de-DE', decimals:2 },
+  '¥':  { locale:'ja-JP', decimals:0 },
+  '£':  { locale:'en-GB', decimals:2 }
+};
+const fmt = n => {
+  const cur = S.settings?.currency || 'Rp';
+  const conf = CUR_LOCALE[cur] || CUR_LOCALE['Rp'];
+  const val = Math.abs(n||0);
+  return cur + ' ' + val.toLocaleString(conf.locale, { minimumFractionDigits: conf.decimals, maximumFractionDigits: conf.decimals });
+};
 const fmtS   = n => { n=n||0; if(n>=1e9) return (n/1e9).toFixed(1)+'M'; if(n>=1e6) return (n/1e6).toFixed(1)+'Jt'; if(n>=1e3) return (n/1e3).toFixed(0)+'Rb'; return n.toString() };
 const catObj = id => S.categories.find(c=>c.id===id) || {name:'(Kategori Dihapus)',icon:'fa-question',color:'#8A90A8',type:'expense'};
 const accObj = id => S.accounts.find(a=>a.id===id)    || {name:'(Akun Dihapus)',icon:'fa-question',color:'#8A90A8',type:'cash'};
