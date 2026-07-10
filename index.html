@@ -484,8 +484,8 @@ select.form-input option{background:var(--bg2)}
 ═══════════════════════════════════════════ */
 .txn-row-enter{animation:txnIn .35s ease both}
 @keyframes txnIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
-.fade-in{animation:fadeIn .3s ease}
-@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .35s cubic-bezier(.22,1,.36,1)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 
 /* ═══════════════════════════════════════════
    CALENDAR — ENHANCED
@@ -911,6 +911,54 @@ select.form-input option{background:var(--bg2)}
 .ai-insight.tip i{color:var(--gold)}
 @media(max-width:640px){.ai-grid{grid-template-columns:repeat(2,1fr)}}
 
+/* ═══════════════════════════════════════════
+   3D LOADING WOBBLE — "wow" entrance effect
+═══════════════════════════════════════════ */
+.ld-logo-wrap{ perspective: 1000px; }
+.ld-stage3d{
+  transform-style: preserve-3d;
+  animation: ldWobble3d 4.4s ease-in-out infinite;
+}
+@keyframes ldWobble3d{
+  0%,100%{ transform: rotateY(0deg) rotateX(0deg) translateZ(0); }
+  22%{ transform: rotateY(26deg) rotateX(-9deg) translateZ(14px); }
+  50%{ transform: rotateY(0deg) rotateX(10deg) translateZ(0); }
+  78%{ transform: rotateY(-26deg) rotateX(-7deg) translateZ(14px); }
+}
+@media(prefers-reduced-motion:reduce){ .ld-stage3d{ animation:none; } }
+
+/* ═══════════════════════════════════════════
+   CARD 3D TILT — hover micro-interaction
+═══════════════════════════════════════════ */
+.card, .ai-card{
+  transform-style: preserve-3d;
+  transition: box-shadow .25s, border-color .25s, transform .12s ease-out;
+  will-change: transform;
+}
+
+/* ═══════════════════════════════════════════
+   COUNT-UP GLOW — brief highlight when stat
+   numbers finish animating in
+═══════════════════════════════════════════ */
+.count-glow{ animation: countGlow .5s ease-out; }
+@keyframes countGlow{
+  0%{ text-shadow:0 0 0 transparent; }
+  40%{ text-shadow:0 0 14px currentColor; }
+  100%{ text-shadow:0 0 0 transparent; }
+}
+
+/* ═══════════════════════════════════════════
+   CONFETTI — celebratory burst (goal reached)
+═══════════════════════════════════════════ */
+.confetti-piece{
+  position:fixed; top:-12px; width:8px; height:14px; border-radius:2px;
+  z-index:9999; pointer-events:none;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall{
+  to{ transform: translateY(105vh) rotate(720deg); opacity:0; }
+}
+
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
 </head>
@@ -920,7 +968,7 @@ select.form-input option{background:var(--bg2)}
 <div id="loading-screen">
   <!-- Orbital rings (positioned absolutely around logo) -->
   <div class="ld-logo-wrap">
-    <div style="position:relative;display:flex;align-items:center;justify-content:center;width:160px;height:160px">
+    <div class="ld-stage3d" style="position:relative;display:flex;align-items:center;justify-content:center;width:160px;height:160px">
       <!-- Orbits -->
       <div class="ld-orbit"></div>
       <div class="ld-orbit-2"></div>
@@ -1291,6 +1339,23 @@ const fmt = n => {
   const val = Math.abs(n||0);
   return cur + ' ' + val.toLocaleString(conf.locale, { minimumFractionDigits: conf.decimals, maximumFractionDigits: conf.decimals });
 };
+// FIX: amount fields were plain <input type="number">. Typing a dot as a
+// thousands separator (the way Indonesians naturally write "200.000")
+// is interpreted by a number input as a DECIMAL POINT, silently saving
+// 200 instead of 200000 — a serious, invisible data-entry bug. These
+// fields are now plain text inputs that auto-format with the correct
+// thousands separator for the selected currency as the user types, while
+// parseAmount() strips the formatting back out to get the real integer.
+function groupInt(n) {
+  n = Math.round(Number(n) || 0);
+  const cur = S.settings?.currency || 'Rp';
+  const conf = CUR_LOCALE[cur] || CUR_LOCALE['Rp'];
+  return n.toLocaleString(conf.locale, { maximumFractionDigits: 0 });
+}
+window.liveFormatAmount = function(el) {
+  const digits = el.value.replace(/[^\d]/g, '');
+  el.value = digits ? groupInt(parseInt(digits, 10)) : '';
+};
 const fmtS   = n => { n=n||0; if(n>=1e9) return (n/1e9).toFixed(1)+'M'; if(n>=1e6) return (n/1e6).toFixed(1)+'Jt'; if(n>=1e3) return (n/1e3).toFixed(0)+'Rb'; return n.toString() };
 const catObj = id => S.categories.find(c=>c.id===id) || {name:'(Kategori Dihapus)',icon:'fa-question',color:'#8A90A8',type:'expense'};
 const accObj = id => S.accounts.find(a=>a.id===id)    || {name:'(Akun Dihapus)',icon:'fa-question',color:'#8A90A8',type:'cash'};
@@ -1421,6 +1486,75 @@ document.addEventListener('click', e => {
 });
 
 /* ─────────────────────────────────────────
+   3D CARD TILT — subtle, cursor-following
+   perspective tilt on .card / .ai-card, only
+   on devices with a real hover-capable pointer
+   (skipped on touch so mobile stays snappy).
+───────────────────────────────────────── */
+let _cardTiltInit = false;
+function initCardTilt() {
+  if (_cardTiltInit) return;
+  if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  _cardTiltInit = true;
+  document.addEventListener('mousemove', e => {
+    const card = e.target.closest && e.target.closest('.card, .ai-card');
+    if (!card) return;
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    card.style.transform = `perspective(800px) rotateX(${(-py * 5).toFixed(2)}deg) rotateY(${(px * 5).toFixed(2)}deg) translateZ(2px)`;
+  });
+  document.addEventListener('mouseout', e => {
+    const card = e.target.closest && e.target.closest('.card, .ai-card');
+    if (!card) return;
+    const to = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.card, .ai-card');
+    if (to !== card) card.style.transform = '';
+  });
+}
+
+/* ─────────────────────────────────────────
+   COUNT-UP — animates a stat number from 0
+   up to its real value with easing, for a
+   satisfying "wow" on dashboard load.
+───────────────────────────────────────── */
+function countUp(id, endVal, formatFn, duration = 900) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = formatFn(endVal); return;
+  }
+  const t0 = performance.now();
+  function tick(now) {
+    const p = Math.min((now - t0) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = formatFn(endVal * eased);
+    if (p < 1) requestAnimationFrame(tick);
+    else { el.textContent = formatFn(endVal); el.classList.add('count-glow'); setTimeout(()=>el.classList.remove('count-glow'), 550); }
+  }
+  requestAnimationFrame(tick);
+}
+
+/* ─────────────────────────────────────────
+   CONFETTI — small celebratory burst used
+   when a savings goal is fully reached.
+───────────────────────────────────────── */
+window.spawnConfetti = function(count = 70) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const colors = ['#7B9EF8','#3DDBA0','#FFB830','#FF7068','#A78BFA','#FB923C'];
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti-piece';
+    const c = colors[i % colors.length];
+    const left = Math.random() * 100;
+    const dur = 2.2 + Math.random() * 1.6;
+    const delay = Math.random() * 0.35;
+    p.style.cssText = `left:${left}vw;background:${c};animation-duration:${dur}s;animation-delay:${delay}s;transform:rotate(${Math.round(Math.random()*360)}deg)`;
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), (dur + delay) * 1000 + 250);
+  }
+};
+
+/* ─────────────────────────────────────────
    AUTH
 ───────────────────────────────────────── */
 document.querySelectorAll('.auth-tab').forEach(tab => {
@@ -1516,8 +1650,23 @@ window.doGoogleLogin = async function(btn) {
 /* ─────────────────────────────────────────
    AUTH STATE OBSERVER
 ───────────────────────────────────────── */
-onAuthStateChanged(auth, async user => {
+// "wow" intro: keep the 3D loading screen visible for at least this long
+// even if auth + Firestore resolve almost instantly, so the animation
+// actually gets seen instead of flashing by.
+const LOAD_MIN_MS = 2600;
+const _loadStartTs = performance.now();
+function finishLoadingScreen() {
   const loading = document.getElementById('loading-screen');
+  const elapsed = performance.now() - _loadStartTs;
+  const wait = Math.max(0, LOAD_MIN_MS - elapsed);
+  setTimeout(() => {
+    if (window._finishLoading) window._finishLoading();
+    loading.classList.add('fade-out');
+    setTimeout(() => loading.style.display = 'none', 650);
+  }, wait);
+}
+
+onAuthStateChanged(auth, async user => {
   if (user) {
     currentUser = user;
     document.getElementById('loading-msg').textContent = 'Memuat data keuangan...';
@@ -1536,10 +1685,9 @@ onAuthStateChanged(auth, async user => {
 
     // Load data from Firestore
     await loadAllData();
+    initCardTilt();
 
-    loading.classList.add('fade-out');
-    if (window._finishLoading) window._finishLoading();
-    setTimeout(() => loading.style.display = 'none', 600);
+    finishLoadingScreen();
     setSyncDot('ok');
   } else {
     currentUser = null;
@@ -1547,11 +1695,10 @@ onAuthStateChanged(auth, async user => {
     document.getElementById('auth-screen').classList.remove('hidden');
     document.getElementById('sidebar').style.display = 'none';
     document.getElementById('main').style.display = 'none';
-    if (window._finishLoading) window._finishLoading();
-    loading.classList.add('fade-out');
-    setTimeout(() => loading.style.display = 'none', 600);
+    finishLoadingScreen();
   }
 });
+
 
 /* ─────────────────────────────────────────
    FIRESTORE DATA LAYER
@@ -2054,25 +2201,25 @@ function rDash(el) {
     <div class="card">
       <div class="stat-icon" style="background:var(--acc-l);color:var(--acc)"><i class="fa-solid fa-vault"></i></div>
       <div class="stat-label" style="margin-top:10px">Total Saldo</div>
-      <div class="stat-value" style="color:${bal>=0?'var(--income)':'var(--expense)'}">${fmt(bal)}</div>
+      <div class="stat-value" id="stat-bal" style="color:${bal>=0?'var(--income)':'var(--expense)'}">${fmt(0)}</div>
       <span class="stat-change trend-neu">Seluruh waktu</span>
     </div>
     <div class="card">
       <div class="stat-icon" style="background:var(--income-l);color:var(--income)"><i class="fa-solid fa-arrow-trend-up"></i></div>
       <div class="stat-label" style="margin-top:10px">Pemasukan Bulan Ini</div>
-      <div class="stat-value" style="color:var(--income)">${fmt(inc)}</div>
+      <div class="stat-value" id="stat-inc" style="color:var(--income)">${fmt(0)}</div>
       <span class="stat-change ${inc>=li?'trend-up':'trend-down'}"><i class="fa-solid fa-arrow-${inc>=li?'up':'down'}"></i> ${li>0?Math.abs(((inc-li)/li)*100).toFixed(1):'0'}%</span>
     </div>
     <div class="card">
       <div class="stat-icon" style="background:var(--expense-l);color:var(--expense)"><i class="fa-solid fa-arrow-trend-down"></i></div>
       <div class="stat-label" style="margin-top:10px">Pengeluaran Bulan Ini</div>
-      <div class="stat-value" style="color:var(--expense)">${fmt(exp)}</div>
+      <div class="stat-value" id="stat-exp" style="color:var(--expense)">${fmt(0)}</div>
       <span class="stat-change ${exp<=le?'trend-up':'trend-down'}"><i class="fa-solid fa-arrow-${exp<=le?'down':'up'}"></i> ${le>0?Math.abs(((exp-le)/le)*100).toFixed(1):'0'}%</span>
     </div>
     <div class="card">
       <div class="stat-icon" style="background:var(--gold-l);color:var(--gold)"><i class="fa-solid fa-piggy-bank"></i></div>
       <div class="stat-label" style="margin-top:10px">Tingkat Tabungan</div>
-      <div class="stat-value" style="color:var(--gold)">${sr}%</div>
+      <div class="stat-value" id="stat-sr" style="color:var(--gold)">0%</div>
       <span class="stat-change" style="background:var(--gold-l);color:var(--gold)">${fmt(Math.max(0,sav))} disimpan</span>
     </div>
   </div>
@@ -2102,6 +2249,10 @@ function rDash(el) {
   </div>`;
 
   renderAIAnalysis();
+  countUp('stat-bal', bal, v => fmt(v));
+  countUp('stat-inc', inc, v => fmt(v));
+  countUp('stat-exp', exp, v => fmt(v));
+  countUp('stat-sr', Number(sr), v => v.toFixed(1) + '%');
 
   // Recent
   const recentEl = document.getElementById('dash-recent');
@@ -2506,7 +2657,7 @@ window.openTxnModal = function(editId) {
     </div>
     <div class="grid-2">
       <div class="form-group"><label class="form-label">Tanggal</label><input type="date" class="form-input" id="tf-date" value="${t?t.date:today()}"></div>
-      <div class="form-group"><label class="form-label">Jumlah</label><input type="number" class="form-input" id="tf-amt" placeholder="0" min="1" step="1" value="${t?t.amount:''}" inputmode="numeric" onkeydown="if(['e','E','+','-'].includes(event.key))event.preventDefault()"></div>
+      <div class="form-group"><label class="form-label">Jumlah</label><input type="text" class="form-input" id="tf-amt" placeholder="0" value="${t?groupInt(t.amount):''}" inputmode="numeric" oninput="liveFormatAmount(this)"></div>
     </div>
     <div class="form-group"><label class="form-label">Deskripsi</label><input type="text" class="form-input" id="tf-desc" placeholder="Contoh: Gaji bulanan" value="${esc(t?t.description:'')}" maxlength="120"></div>
     <div class="grid-2">
@@ -2543,7 +2694,9 @@ function fillCatSelect(selId) {
 // notation. We now validate with a strict finite/positive/integer check
 // before accepting the value, and reject clearly instead of saving junk.
 function parseAmount(raw) {
-  const n = Math.round(Number(raw));
+  const digits = String(raw ?? '').replace(/[^\d]/g, '');
+  if (!digits) return null;
+  const n = parseInt(digits, 10);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
 }
@@ -2591,7 +2744,7 @@ window.openTransferModal = function() {
       <div class="form-group"><label class="form-label">Ke Akun</label><select class="form-input" id="tr-to">${S.accounts.map(a=>`<option value="${a.id}"${a===S.accounts[1]?' selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
     </div>
     <div class="form-group"><label class="form-label">Tanggal</label><input type="date" class="form-input" id="tr-date" value="${today()}"></div>
-    <div class="form-group"><label class="form-label">Jumlah</label><input type="number" class="form-input" id="tr-amt" placeholder="0" min="1" onkeydown="if(['e','E','+','-'].includes(event.key))event.preventDefault()"></div>
+    <div class="form-group"><label class="form-label">Jumlah</label><input type="text" class="form-input" id="tr-amt" placeholder="0" inputmode="numeric" oninput="liveFormatAmount(this)"></div>
     <div class="form-group"><label class="form-label">Catatan <span style="font-weight:400;color:var(--txm)">(opsional)</span></label><input type="text" class="form-input" id="tr-note" placeholder="Contoh: Tarik tunai" maxlength="200"></div>
   </div>
   <div class="modal-footer"><button class="btn" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="tr-save-btn" onclick="saveTransfer()">Transfer</button></div>`);
@@ -2670,7 +2823,7 @@ window.openBudModal = function(editId) {
   <div class="modal-header"><h3>${b?'Edit':'Tambah'} Anggaran</h3><button class="btn-icon" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
   <div class="modal-body">
     <div class="form-group"><label class="form-label">Kategori</label><select class="form-input" id="bf-cat">${opts.map(c=>`<option value="${c.id}"${b&&b.categoryId===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
-    <div class="form-group"><label class="form-label">Jumlah Anggaran per Bulan</label><input type="number" class="form-input" id="bf-amt" placeholder="0" min="1" value="${b?b.amount:''}"></div>
+    <div class="form-group"><label class="form-label">Jumlah Anggaran per Bulan</label><input type="text" class="form-input" id="bf-amt" placeholder="0" inputmode="numeric" value="${b?groupInt(b.amount):''}" oninput="liveFormatAmount(this)"></div>
   </div>
   <div class="modal-footer"><button class="btn" onclick="closeModal()">Batal</button><button class="btn btn-primary" id="bf-save-btn" onclick="saveBud('${editId||''}')">${b?'Simpan':'Tambah'}</button></div>`);
 };
@@ -2806,8 +2959,8 @@ window.openGoalModal = function(editId) {
   <div class="modal-body">
     <div class="form-group"><label class="form-label">Nama Target</label><input type="text" class="form-input" id="gf-name" placeholder="Contoh: Dana Darurat" value="${esc(g?g.name:'')}" maxlength="40"></div>
     <div class="grid-2">
-      <div class="form-group"><label class="form-label">Jumlah Target</label><input type="number" class="form-input" id="gf-target" placeholder="0" min="1" value="${g?g.target:''}"></div>
-      <div class="form-group"><label class="form-label">Sudah Terkumpul</label><input type="number" class="form-input" id="gf-cur" placeholder="0" min="0" value="${g?g.current:'0'}"></div>
+      <div class="form-group"><label class="form-label">Jumlah Target</label><input type="text" class="form-input" id="gf-target" placeholder="0" inputmode="numeric" value="${g?groupInt(g.target):''}" oninput="liveFormatAmount(this)"></div>
+      <div class="form-group"><label class="form-label">Sudah Terkumpul</label><input type="text" class="form-input" id="gf-cur" placeholder="0" inputmode="numeric" value="${g?groupInt(g.current):'0'}" oninput="liveFormatAmount(this)"></div>
     </div>
     <div class="form-group"><label class="form-label">Deadline</label><input type="date" class="form-input" id="gf-dl" value="${g?g.deadline:''}"></div>
     <div class="form-group"><label class="form-label">Ikon</label><div style="display:flex;gap:6px;flex-wrap:wrap">${GOAL_ICONS.map(ic=>`<div style="width:34px;height:34px;border-radius:8px;background:var(--bg);box-shadow:var(--neu-raised-sm);display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid ${_goalIcon===ic?'var(--acc)':'transparent'}" onclick="pickGI(this,'${ic}')"><i class="fa-solid ${ic}" style="font-size:12px"></i></div>`).join('')}</div></div>
@@ -2820,7 +2973,7 @@ window.pickGC = (el,cl) => { _goalColor=cl; el.parentElement.querySelectorAll('d
 window.saveGoal = async function(editId) {
   const name=document.getElementById('gf-name').value.trim();
   const target=parseAmount(document.getElementById('gf-target').value);
-  const current=Math.max(0, Math.round(Number(document.getElementById('gf-cur').value))||0);
+  const current=parseAmount(document.getElementById('gf-cur').value) ?? 0;
   const deadline=document.getElementById('gf-dl').value;
   if(!name||!target||!deadline){toast('Harap isi semua field','error');return}
   const btn = document.getElementById('gf-save-btn');
@@ -2830,14 +2983,21 @@ window.saveGoal = async function(editId) {
 };
 window.addToGoal = function(id) {
   openModal(`<div class="modal-header"><h3>Tambah Tabungan</h3><button class="btn-icon" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
-  <div class="modal-body"><div class="form-group"><label class="form-label">Jumlah</label><input type="number" class="form-input" id="gf-add" placeholder="0" min="1"></div></div>
+  <div class="modal-body"><div class="form-group"><label class="form-label">Jumlah</label><input type="text" class="form-input" id="gf-add" placeholder="0" inputmode="numeric" oninput="liveFormatAmount(this)"></div></div>
   <div class="modal-footer"><button class="btn" onclick="closeModal()">Batal</button><button class="btn btn-primary" onclick="doAddGoal('${id}')">Tambah</button></div>`);
 };
 window.doAddGoal = async function(id) {
   const amt = parseAmount(document.getElementById('gf-add').value);
   if(!amt){toast('Masukkan jumlah valid','error');return}
   const g = S.goals.find(x=>x.id===id);
-  if(g){ const newCur=Math.min(g.current+amt,g.target); await fbSaveGoal({...g,current:newCur},id); toast('Tabungan ditambahkan'); closeModal();renderPage(); }
+  if(g){
+    const newCur=Math.min(g.current+amt,g.target);
+    const justReached = g.current < g.target && newCur >= g.target;
+    await fbSaveGoal({...g,current:newCur},id);
+    closeModal(); renderPage();
+    if (justReached) { spawnConfetti(); toast(`🎉 Target "${g.name}" tercapai! Selamat!`, 'success'); }
+    else toast('Tabungan ditambahkan');
+  }
 };
 window.delGoal = function(id) {
   confirmDel('Hapus target tabungan ini?', async ()=>{ await fbDelGoal(id); toast('Target dihapus','info'); renderPage(); });
